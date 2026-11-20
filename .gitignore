@@ -1,0 +1,14 @@
+node_modules/
+dist/
+data/
+coverage/
+.env
+*.db
+*.db-*
+
+# Business data (goods, terms, address, advert notes): local only. Templates: *.example.json
+config/templates.json
+config/adverts.config.json
+
+# Claude Code local settings
+.claude/

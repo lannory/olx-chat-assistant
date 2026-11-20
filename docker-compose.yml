@@ -1,0 +1,42 @@
+services:
+  olx-bot:
+    build: .
+    container_name: olx-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Paths inside the container (override whatever .env says for local runs)
+      DB_PATH: /app/data/olx-bot.db
+      TEMPLATES_PATH: /app/config/templates.json
+      ADVERTS_CONFIG_PATH: /app/config/adverts.config.json
+    volumes:
+      - olx-bot-data:/app/data          # SQLite: tokens, processed messages, drafts
+      - ./config:/app/config:ro         # templates.json + adverts.config.json, edit without rebuild
+    ports:
+      # Without Caddy, expose the app only on localhost (put your own reverse proxy in front).
+      - "127.0.0.1:3000:3000"
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Optional HTTPS front for the OAuth callback: docker compose --profile https up -d
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [olx-bot]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  olx-bot-data:
+  caddy-data:
+  caddy-config:

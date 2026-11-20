@@ -1,0 +1,39 @@
+{
+  "name": "olx-bot",
+  "version": "1.0.0",
+  "description": "OLX autoresponder with Telegram bridge",
+  "main": "dist/worker.js",
+  "scripts": {
+    "dev": "tsx watch src/worker.ts",
+    "start": "node dist/worker.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm test"
+  },
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@google/genai": "^3.6.1",
+    "better-sqlite3": "^13.2.0",
+    "fastify": "^5.12.8",
+    "grammy": "^1.46.0",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.15.0",
+    "pino-pretty": "^13.2.0",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

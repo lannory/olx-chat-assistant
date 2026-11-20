@@ -1,0 +1,11 @@
+# Automatic HTTPS (Let's Encrypt) for the OAuth callback.
+# Only /oauth/callback and /health are proxied; everything else gets 404.
+{$DOMAIN} {
+	@app path /oauth/callback /health
+	handle @app {
+		reverse_proxy olx-bot:3000
+	}
+	handle {
+		respond 404
+	}
+}
