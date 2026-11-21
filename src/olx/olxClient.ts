@@ -34,7 +34,7 @@ export interface OlxApi {
   listAllThreads(pageSize?: number): Promise<OlxThread[]>;
   getThread(threadId: string): Promise<OlxThread>;
   getMessages(threadId: string): Promise<OlxMessage[]>;
-  sendMessage(threadId: string, text: string): Promise<void>;
+  sendMessage(threadId: string, text: string, photos?: readonly string[]): Promise<void>;
   markAsRead(threadId: string): Promise<void>;
   getAdvert(advertId: number): Promise<OlxAdvert>;
   getUser(userId: number): Promise<OlxUser>;
@@ -89,8 +89,13 @@ export class OlxClient implements OlxApi {
     return this.call('GET', `/threads/${encodeURIComponent(threadId)}/messages`, messageListSchema);
   }
 
-  async sendMessage(threadId: string, text: string): Promise<void> {
-    await this.call('POST', `/threads/${encodeURIComponent(threadId)}/messages`, null, { text });
+  /**
+   * POST /threads/{id}/messages: `{ text, attachments?: [{ url }] }`. The API takes attachments only as
+   * URLs (there is no upload endpoint), so photos must be publicly reachable links.
+   */
+  async sendMessage(threadId: string, text: string, photos: readonly string[] = []): Promise<void> {
+    const body = photos.length ? { text, attachments: photos.map((url) => ({ url })) } : { text };
+    await this.call('POST', `/threads/${encodeURIComponent(threadId)}/messages`, null, body);
   }
 
   async markAsRead(threadId: string): Promise<void> {

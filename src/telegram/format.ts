@@ -60,23 +60,25 @@ function draftSource(d: DraftRow): string {
 }
 
 const quote = (text: string) => `<blockquote>${esc(clip(text, 1500))}</blockquote>`;
+/** Draft text plus a note about attached photos. */
+const draftQuote = (d: DraftRow) => `${quote(d.text)}${d.photos.length ? `\n📷 <i>+ ${d.photos.length} фото</i>` : ''}`;
 
 export function statusBlock(s: CardStatus, tz: string): string {
   switch (s.kind) {
     case 'forward':
       return `📨 <b>Без автовідповіді</b>: ${esc(s.reason)}`;
     case 'draft':
-      return [`✍️ <b>Чернетка</b> (${esc(draftSource(s.draft))})`, s.note ? `<i>${esc(s.note)}</i>` : '', quote(s.draft.text)]
+      return [`✍️ <b>Чернетка</b> (${esc(draftSource(s.draft))})`, s.note ? `<i>${esc(s.note)}</i>` : '', draftQuote(s.draft)]
         .filter(Boolean)
         .join('\n');
     case 'scheduled':
-      return `🌙 <b>Тихі години</b>: надішлю о ${esc(formatLocal(s.draft.scheduledFor ?? 0, tz))}\n${quote(s.draft.text)}`;
+      return `🌙 <b>Тихі години</b>: надішлю о ${esc(formatLocal(s.draft.scheduledFor ?? 0, tz))}\n${draftQuote(s.draft)}`;
     case 'auto_sent':
-      return [`🤖 <b>Автовідповідь надіслано</b>${s.note ? ` (${esc(s.note)})` : ''}`, quote(s.draft.text)].join('\n');
+      return [`🤖 <b>Автовідповідь надіслано</b>${s.note ? ` (${esc(s.note)})` : ''}`, draftQuote(s.draft)].join('\n');
     case 'send_failed':
-      return `❌ <b>Не вдалося надіслати</b>: ${esc(s.error)}\n${quote(s.draft.text)}`;
+      return `❌ <b>Не вдалося надіслати</b>: ${esc(s.error)}\n${draftQuote(s.draft)}`;
     case 'draft_sent':
-      return `✅ <b>Надіслано</b>\n${quote(s.draft.text)}`;
+      return `✅ <b>Надіслано</b>\n${draftQuote(s.draft)}`;
     case 'draft_skipped':
       return `⏭ <b>Чернетку пропущено</b>`;
     case 'draft_superseded':
@@ -102,7 +104,8 @@ export function actionableDraft(s: CardStatus): DraftRow | null {
   return null;
 }
 
-export function threadKeyboard(thread: ThreadRow, draft: DraftRow | null): InlineKeyboard {
+/** `photos`: there are photo sets for this thread's advert (shows the "📷 Фото" button). */
+export function threadKeyboard(thread: ThreadRow, draft: DraftRow | null, photos = false): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (draft) {
     kb.text(draft.status === 'scheduled' ? '✅ Надіслати зараз' : '✅ Надіслати', `d:send:${draft.id}`)
@@ -110,7 +113,9 @@ export function threadKeyboard(thread: ThreadRow, draft: DraftRow | null): Inlin
       .text(draft.status === 'scheduled' ? '✖️ Скасувати' : '⏭ Пропустити', `d:skip:${draft.id}`)
       .row();
   }
-  kb.text('💬 Відповісти', 't:reply').text('📋 Шаблони', 't:tpl').row();
+  kb.text('💬 Відповісти', 't:reply').text('📋 Шаблони', 't:tpl');
+  if (photos) kb.text('📷 Фото', 't:ph');
+  kb.row();
   kb.text('👁 Прочитано', 't:read');
   kb.text(thread.ignored ? '🔔 Не ігнорувати' : '🔕 Ігнорувати тред', thread.ignored ? 't:unign' : 't:ign');
   return kb;
@@ -123,5 +128,11 @@ export function quickTemplatesKeyboard(quick: { id: string; label: string }[]): 
     if (i % 2 === 1) kb.row();
   });
   if (quick.length % 2 === 1) kb.row();
+  return kb.text('⬅️ Назад', 't:back');
+}
+
+export function photoSetsKeyboard(sets: { id: string; label: string; urls: string[] }[]): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const s of sets) kb.text(`📷 ${s.label} (${s.urls.length})`, `p:${s.id}`).row();
   return kb.text('⬅️ Назад', 't:back');
 }

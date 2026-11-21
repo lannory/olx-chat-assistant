@@ -9,6 +9,7 @@ coverage/
 # Business data (goods, terms, address, advert notes): local only. Templates: *.example.json
 config/templates.json
 config/adverts.config.json
+config/photos/
 
 # Claude Code local settings
 .claude/

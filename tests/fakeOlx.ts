@@ -7,7 +7,7 @@ export class FakeOlx implements OlxApi {
   messages = new Map<string, OlxMessage[]>();
   adverts = new Map<number, OlxAdvert>();
   users = new Map<number, OlxUser>();
-  sent: { threadId: string; text: string }[] = [];
+  sent: { threadId: string; text: string; photos?: string[] }[] = [];
   markedRead: string[] = [];
   calls: string[] = [];
   failMessagesFor = new Set<string>();
@@ -69,8 +69,8 @@ export class FakeOlx implements OlxApi {
     return [...(this.messages.get(threadId) ?? [])];
   }
 
-  async sendMessage(threadId: string, text: string): Promise<void> {
-    this.sent.push({ threadId, text });
+  async sendMessage(threadId: string, text: string, photos: readonly string[] = []): Promise<void> {
+    this.sent.push(photos.length ? { threadId, text, photos: [...photos] } : { threadId, text });
     this.addMessage(threadId, 'sent', text);
   }
 

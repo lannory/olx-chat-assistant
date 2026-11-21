@@ -57,10 +57,17 @@ type Plan =
       note?: string;
       /** A question the templates can't cover (no advert notes, unknown camera/accessory): in MODE=draft an LLM draft is preferred. */
       llmPreferred?: string;
+      /** Photo URLs to post with the reply (whichever draft gets created). */
+      photos: string[];
     };
 
 /** "Дякую за замовлення" goes out even if the owner has just written in the thread. */
 const COOLDOWN_EXEMPT: ReadonlySet<Intent> = new Set(['order_details']);
+
+/** Prices written in the advert description ("за 1500 грн", "600 грн"). */
+export function descriptionPrices(description: string): number[] {
+  return [...description.matchAll(/(\d{1,3}(?:[ .]\d{3})+|\d+)\s*(грн|uah|₴)/giu)].map((m) => Number(m[1]!.replace(/[ .]/g, '')));
+}
 
 /** "5" / "7.5" for a 9 000 грн item means thousands. */
 export function scaleOffer(offer: number, price: number): number {
@@ -95,8 +102,13 @@ export class Processor implements MessageProcessor {
     const intents = new Set<Intent>();
     const offers: number[] = [];
     let bargainExplicit = false;
+    const tpl = this.d.templates.get();
+    const classifyOpts = {
+      pickupWords: tpl.pickup_words,
+      photoWords: tpl.photos.flatMap((p) => (p.match ? [p.match] : [])),
+    };
     for (const m of relevant) {
-      const c = classify(m.text, m.hasAttachments, { pickupWords: this.d.templates.get().pickup_words });
+      const c = classify(m.text, m.hasAttachments, classifyOpts);
       if (c.blocked) return { kind: 'forward', reason: BLOCK_REASON_LABELS[c.blocked], llm: !NO_LLM_BLOCKS.has(c.blocked) };
       c.intents.forEach((i) => intents.add(i));
       offers.push(...c.offers);
@@ -107,13 +119,20 @@ export class Processor implements MessageProcessor {
     const topics = [...new Set(relevant.flatMap((m) => deliveryTopics(m.text)))];
     if (topics.includes('olx')) intents.delete('order');
 
-    // A bare number ("9000", "9000 беру") at or above the advert price is agreement, not bargaining.
+    // A bare number ("9000", "9000 беру") at or above the advert price is agreement, not bargaining;
+    // "що за набір за 1500?" quotes a price from the description, it is not an offer either.
     if (intents.has('bargain') && !bargainExplicit && offers.length > 0) {
-      const price = (await this.d.context.getAdvert(thread.advertId))?.priceValue ?? null;
-      if (price !== null && offers.every((o) => scaleOffer(o, price) >= price)) {
+      const advert = await this.d.context.getAdvert(thread.advertId);
+      const price = advert?.priceValue ?? null;
+      const listed = new Set(descriptionPrices(advert?.description ?? ''));
+      const real = offers.filter((o) => !listed.has(o));
+      if (real.length === 0) {
+        intents.delete('bargain');
+      } else if (price !== null && real.every((o) => scaleOffer(o, price) >= price)) {
         intents.delete('bargain');
         if (intents.size === 0) return { kind: 'forward', reason: 'покупець пропонує ціну оголошення або більше', llm: false };
       }
+      if (intents.size === 0) return { kind: 'forward', reason: 'не розпізнано' };
     }
 
     const open = this.d.db.listOpenDraftsForThread(thread.uuid);
@@ -145,8 +164,9 @@ export class Processor implements MessageProcessor {
         military,
         greet: !this.d.db.sellerHasWritten(thread.uuid),
         deliveryTopics: topics,
+        buyerText: relevant.map((m) => m.text).join('\n'),
       },
-      this.d.templates.get(),
+      tpl,
     );
     const skippedNote = reply.skipped.map((s) => `${INTENT_LABELS[s.intent]} — ${s.reason}`).join('; ');
     if (!reply.text) return { kind: 'forward', reason: skippedNote || 'немає шаблону' };
@@ -165,6 +185,7 @@ export class Processor implements MessageProcessor {
       llmPreferred: llmIntents.length
         ? `${llmIntents.map((i) => INTENT_LABELS[i]).join(', ')}: бракує даних для шаблону, відповідь за описом оголошення`
         : undefined,
+      photos: reply.photos,
     };
   }
 
@@ -197,6 +218,7 @@ export class Processor implements MessageProcessor {
       intent: plan.intents.join(','),
       text: plan.text,
       source: 'rule' as const,
+      photos: plan.photos,
     };
 
     if (mode === 'draft') {

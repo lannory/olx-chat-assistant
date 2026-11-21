@@ -42,6 +42,9 @@ export const SYSTEM_PROMPT = `Ти допомагаєш продавцю на OL
 - Відповідай саме на те, про що питають: якщо питають про OLX Доставку — почни з неї, а інший спосіб згадай коротко одним реченням. Не переказуй усі умови, коли питають про щось одне.
 - Вітайся («Добрий день!») лише в першій відповіді. Якщо продавець уже писав у розмові або в <seller_already_wrote> стоїть «так», одразу відповідай по суті.
 - Спирайся тільки на дані оголошення й нотатки продавця. Якщо даних бракує — не вигадуй, а напиши, що продавець уточнить.
+- Позиції, перелічені в оголошенні (зокрема в списку допродажу чи аксесуарів), вважай наявними: не пиши «уточню», «перевірю наявність» чи «продавець уточнить» щодо них. Просто назви позицію і ціну.
+- Якщо та сама річ є в оголошенні у двох варіантах — «оригінальний» і «(неоригінальний)» чи без позначки, — назви обидва в одному рядку: «чохол: оригінальний — 700 грн, неоригінальний — 350 грн». Не пиши «700 або 350 грн» і не пропускай жоден варіант.
+- Кілька позицій з цінами перелічуй списком, кожну з нового рядка (список не рахується в обмеження на кількість речень).
 - Не обіцяй знижок, торгу, обміну чи резерву; не називай нову ціну. Якщо покупець торгується, ввічливо напиши, що продавець відповість особисто.
 - Не називай точної адреси, лише район чи місто.
 - Ціну з комісією OLX Доставки не рахуй сам: якщо вона потрібна, бери готову суму з рядка «Ціна з комісією OLX Доставки».
@@ -77,6 +80,33 @@ function formatHistory(history: MessageRow[]): string {
     .join('\n');
 }
 
+const ORIGINAL_SRC = '(?<!\\p{L})(оригінальн|оригинальн|ориг|original)\\p{L}*';
+const ORIGINAL = new RegExp(ORIGINAL_SRC, 'iu');
+const LIST_ITEM = /^\s*[-–—•*]\s*/u;
+
+/** "оригінальний чохол 700 грн" → "чохол": the item without the "original" mark, price and punctuation. */
+function variantKey(line: string): string {
+  return line
+    .replace(LIST_ITEM, '')
+    .replace(new RegExp(ORIGINAL_SRC, 'giu'), ' ')
+    .replace(/[\d\s.,]*(грн|uah|₴)\.?/giu, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * In list items, marks the plain variant of an item that is also listed as "оригінальний …" as
+ * "(неоригінальний)", so the reply can say "оригінальний — 700 грн, неоригінальний — 350 грн".
+ */
+export function markNonOriginalVariants(description: string): string {
+  const lines = description.split('\n');
+  const originals = new Set(lines.filter((l) => LIST_ITEM.test(l) && ORIGINAL.test(l)).map(variantKey));
+  return lines
+    .map((l) => (LIST_ITEM.test(l) && !ORIGINAL.test(l) && originals.has(variantKey(l)) ? `${l.trimEnd()} (неоригінальний)` : l))
+    .join('\n');
+}
+
 /** Builds the user prompt. The buyer's name is intentionally left out. */
 export function buildUserPrompt(input: LlmDraftInput): string {
   const a = input.advert;
@@ -86,7 +116,7 @@ export function buildUserPrompt(input: LlmDraftInput): string {
         `Назва: ${a.title}`,
         `Ціна: ${formatPrice(a.priceValue, a.priceCurrency) || 'не вказана'}`,
         input.olxPrice ? `Ціна з комісією OLX Доставки: ${input.olxPrice}` : '',
-        `Опис: ${a.description.slice(0, 2000)}`,
+        `Опис: ${markNonOriginalVariants(a.description.slice(0, 2000))}`,
       ]
         .filter(Boolean)
         .join('\n')

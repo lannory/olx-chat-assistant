@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import type { MessageRow } from '../src/db/index.js';
-import { buildUserPrompt, GeminiDrafter, redactPersonalData, SYSTEM_PROMPT, systemPrompt } from '../src/llm/draft.js';
+import { buildUserPrompt, GeminiDrafter, markNonOriginalVariants, redactPersonalData, SYSTEM_PROMPT, systemPrompt } from '../src/llm/draft.js';
 import { nullLogger } from '../src/logger.js';
 
 interface Captured {
@@ -103,9 +103,55 @@ describe('Gemini drafter', () => {
   });
 });
 
+describe('markNonOriginalVariants', () => {
+  it('marks the plain variant of an item that is also listed as original', () => {
+    const description = [
+      'Можливий допродаж:',
+      '- оригінальна зарядка 900 грн',
+      '- зарядка 400 грн',
+      '- оригінальна сумка 1200 грн',
+      '- мишка 300 грн',
+      'Зарядка в комплекті',
+    ].join('\n');
+    expect(markNonOriginalVariants(description)).toBe(
+      [
+        'Можливий допродаж:',
+        '- оригінальна зарядка 900 грн',
+        '- зарядка 400 грн (неоригінальний)',
+        '- оригінальна сумка 1200 грн',
+        '- мишка 300 грн',
+        'Зарядка в комплекті',
+      ].join('\n'),
+    );
+  });
+
+  it('is applied to the advert description in the prompt', () => {
+    const prompt = buildUserPrompt({
+      ...input,
+      advert: {
+        id: 1,
+        title: 'Ноутбук',
+        description: '- оригінальна зарядка 900 грн\n- зарядка 400 грн',
+        priceValue: 9000,
+        priceCurrency: 'UAH',
+        negotiable: false,
+        url: '',
+        status: 'active',
+        fetchedAt: 0,
+      },
+    });
+    expect(prompt).toContain('- зарядка 400 грн (неоригінальний)');
+  });
+
+  it('the rules forbid "уточню" for listed items and "X або Y грн" for variants', () => {
+    expect(SYSTEM_PROMPT).toContain('вважай наявними');
+    expect(SYSTEM_PROMPT).toContain('не пиши «700 або 350 грн»'.replace('не пиши', 'Не пиши'));
+  });
+});
+
 describe('systemPrompt', () => {
   it('appends the seller context from the local config; the code itself knows nothing about the business', () => {
-    expect(SYSTEM_PROMPT).not.toMatch(/ноутбук|Київ|грн/);
+    expect(SYSTEM_PROMPT).not.toMatch(/ноутбук|Київ|Нова Пошта|Новою Поштою/);
     expect(systemPrompt('')).toBe(SYSTEM_PROMPT);
     expect(systemPrompt('Продавець продає вживані ноутбуки.')).toBe(`${SYSTEM_PROMPT}\n\nПро продавця:\nПродавець продає вживані ноутбуки.`);
   });

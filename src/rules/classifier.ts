@@ -7,7 +7,7 @@
  */
 
 /** Canonical order = order of paragraphs in a combined reply. */
-export const AUTO_INTENTS = ['availability', 'delivery', 'pickup', 'condition', 'bargain', 'order', 'order_details'] as const;
+export const AUTO_INTENTS = ['availability', 'delivery', 'pickup', 'condition', 'photo', 'bargain', 'order', 'order_details'] as const;
 export type Intent = (typeof AUTO_INTENTS)[number];
 
 export type BlockReason = 'price' | 'exchange' | 'attachment' | 'empty' | 'paid' | 'unknown';
@@ -89,6 +89,9 @@ export function extractOffers(text: string): number[] {
   return out;
 }
 
+/** "комплект": a condition question, unless the buyer asks for photos of the kit. */
+const KIT = re('комплект');
+
 const PATTERNS: Record<Intent, RegExp[]> = {
   availability: [
     re('актуальн'),
@@ -130,7 +133,7 @@ const PATTERNS: Record<Intent, RegExp[]> = {
     re(`${W}(де|где)\\s+(можна|можно|ви|вы)?\\s*(забрат|подивит|посмотрет|купит)`),
   ],
   condition: [
-    re('комплект'),
+    KIT,
     re(`${W}(що|что)\\s+(є|есть|входить|входит|йде|идет|ид[её]т)\\s+(в|у|до)\\s`),
     re(`${W}стан(?!\\p{L})`),
     re(`${W}стан(і|ом|у)(?!\\p{L})`),
@@ -148,7 +151,10 @@ const PATTERNS: Record<Intent, RegExp[]> = {
     re('торг'),
     re('знижк'),
     re('скидк'),
-    re(`${W}скин(ь|ьте|е|ете|ите|еш|ешь|у|ути|уть)(?!\\p{L})`),
+    // "скиньте 500", "скинете?" — but not "скиньте фото / карту / номер / дані"
+    re(
+      `${W}скин(ь|ьте|е|ете|ите|еш|ешь|у|ути|уть)(?!\\p{L})(?![\\s,]+(\\p{L}+[\\s,]+){0,3}(фот|photo|карт|номер|дан|адрес|відео|видео|посилан|ссылк|ттн|реквіз))`,
+    ),
     re('дешевш'),
     re('дешевле'),
     re('уступ'),
@@ -169,6 +175,16 @@ const PATTERNS: Record<Intent, RegExp[]> = {
   ],
   // Detected separately (isOrderDetails): the whole message is the buyer's delivery details.
   order_details: [],
+  // "Скиньте фото", "а фото є?", "можна фото комплекту" (not "все що на фото входить?").
+  photo: [
+    re(`${W}(скин|скід|надіш|надсил|кин|пришл|прешл|присл|покаж|показ|дайт|скинь)\\p{L}*[\\s,]+(\\p{L}+[\\s,]+){0,3}(фот|photo)`),
+    // "Можете сфоткати?", "сфотографуйте"
+    re(`${W}сфот\\p{L}*`),
+    // The message starts with "фото": "Фото всіх аксів", "Фото можна?", "А фото?" (not "фото не видно")
+    re(`^(а|і|и|ще|також|и\\s+ще)?\\s*(фот|photo)\\p{L}*(?!\\s+(не|на)(?!\\p{L}))`),
+    re(`${W}(є|есть|можна|можно|можете|можеш|а)\\s+(\\p{L}+\\s+)?(фот|photo)\\p{L}*`),
+    re(`(?<!(на|по|з|с)\\s)${W}(фот|photo)\\p{L}*(\\s+\\p{L}+){0,2}\\s*\\?`),
+  ],
 };
 
 /** Delivery details (name, phone, branch): the buyer is ordering — the owner checks and ships. */
@@ -237,6 +253,8 @@ export function isMilitary(text: string): boolean {
 export interface ClassifyOptions {
   /** Seller-specific words that mean pickup (district names etc.), as regex sources. */
   pickupWords?: readonly string[];
+  /** `match` of configured photo sets: these words ask for photos even without "фото". */
+  photoWords?: readonly string[];
 }
 
 const extraPatterns = new Map<string, RegExp>();
@@ -255,10 +273,16 @@ export function classify(text: string, hasAttachments = false, opts: ClassifyOpt
   let intents = AUTO_INTENTS.filter((intent) => {
     if (intent === 'bargain') return bargainExplicit || offers.length > 0;
     if (intent === 'pickup' && matchesAny(opts.pickupWords, t)) return true;
+    if (intent === 'photo' && matchesAny(opts.photoWords, t)) return true;
     return PATTERNS[intent].some((p) => p.test(t));
   });
   // "8500 беру" is a counter-offer, not an order at the advert price.
   if (intents.includes('bargain')) intents = intents.filter((i) => i !== 'order');
+  // "скиньте фото комплекту" asks for photos; "комплект" alone does not make it a condition question.
+  if (intents.includes('photo') && intents.includes('condition')) {
+    const otherCondition = PATTERNS.condition.some((p) => p !== KIT && p.test(t));
+    if (!otherCondition) intents = intents.filter((i) => i !== 'condition');
+  }
   const military = MILITARY.some((p) => p.test(t));
   const result = (blocked: BlockReason | null): Classification => ({ intents, blocked, military, offers, bargainExplicit });
 
@@ -337,4 +361,5 @@ export const INTENT_LABELS: Record<Intent, string> = {
   bargain: 'торг',
   order: 'замовлення',
   order_details: 'дані для відправки',
+  photo: 'фото',
 };

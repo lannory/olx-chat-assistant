@@ -169,6 +169,55 @@ describe('draft mode (default)', () => {
     expect(drafter.draft).not.toHaveBeenCalled();
   });
 
+  it('a photo request gets a draft with the configured photos; they go out as OLX attachments', async () => {
+    const h = createHarness();
+    await h.init();
+    await h.buyerSays('Скиньте фото великого комплекту');
+    const draft = h.db.getDraft(1)!;
+    expect(draft.intent).toBe('photo');
+    expect(draft.text).toBe('Добрий день!\nОсь фото великого комплекту аксесуарів:');
+    expect(draft.photos).toEqual(['https://example.com/photos/big-kit-1.jpg', 'https://example.com/photos/big-kit-2.jpg']);
+    expect(h.lastCard()!.payload.text).toContain('+ 2 фото');
+
+    await h.press(h.buttons(h.lastCard()!)[0]!.callback_data, h.messageIdOf(h.lastCard()!));
+    expect(h.olx.sent).toEqual([
+      { threadId: 't1', text: 'Добрий день!\nОсь фото великого комплекту аксесуарів:', photos: draft.photos },
+    ]);
+  });
+
+  it('"що за великий набір за 1500?" asks for the kit photos, the listed price is not an offer', async () => {
+    const h = createHarness();
+    h.olx.adverts.get(ADVERT_ID)!.description = 'Допродаж:\n- великий набір аксесуарів (за фото пишіть) за 1500 грн.';
+    await h.init();
+    await h.buyerSays('А що за великий набір за 1500?');
+    const draft = h.db.getDraft(1)!;
+    expect(draft.intent).toBe('photo');
+    expect(draft.photos).toHaveLength(2);
+  });
+
+  it('a photo request the sets do not cover ("фото серійника") is not answered with the kit photos', async () => {
+    const h = createHarness();
+    await h.init();
+    await h.buyerSays('Можете надіслати фото серійника?');
+    expect(h.db.getDraft(1)).toBeNull();
+    expect(h.lastCard()!.payload.text).toContain('незрозуміло, який набір фото');
+  });
+
+  it('"📷 Фото" button sends a photo set by hand', async () => {
+    const h = createHarness();
+    await h.init();
+    await h.buyerSays('Можу забрати за 10 хвилин?');
+    const card = h.lastCard()!;
+    expect(h.buttons(card).map((b) => b.text)).toContain('📷 Фото');
+    await h.press('t:ph', h.messageIdOf(card));
+    await h.press('p:big_kit', h.messageIdOf(card));
+    expect(h.olx.sent.at(-1)).toEqual({
+      threadId: 't1',
+      text: 'Ось фото великого комплекту аксесуарів:',
+      photos: ['https://example.com/photos/big-kit-1.jpg', 'https://example.com/photos/big-kit-2.jpg'],
+    });
+  });
+
   it('skip closes the draft', async () => {
     const h = createHarness();
     await h.init();

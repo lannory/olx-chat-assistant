@@ -109,4 +109,7 @@ export const migrations: string[] = [
     fetched_at     BIGINT NOT NULL
   );
   `,
+  /* 2: photo URLs sent together with a draft (JSON array of strings) */ `
+  ALTER TABLE drafts ADD COLUMN photos TEXT;
+  `,
 ];

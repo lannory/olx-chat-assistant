@@ -98,6 +98,16 @@ describe('OlxClient', () => {
     expect(m.calls[1]!.body).toEqual({ command: 'mark-as-read' });
   });
 
+  it('posts photos as attachments with URLs', async () => {
+    const { m, client } = setup();
+    m.route(`POST /api/partner/threads/${T1}/messages`, new Response(null, { status: 200 }));
+    await client.sendMessage(T1, 'Ось фото', ['https://example.com/1.jpg', 'https://example.com/2.jpg']);
+    expect(m.calls[0]!.body).toEqual({
+      text: 'Ось фото',
+      attachments: [{ url: 'https://example.com/1.jpg' }, { url: 'https://example.com/2.jpg' }],
+    });
+  });
+
   it('unwraps advert from {data}', async () => {
     const { m, client } = setup();
     m.route(

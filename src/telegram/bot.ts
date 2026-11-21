@@ -11,7 +11,7 @@ import type { OAuthService } from '../olx/oauth.js';
 import type { OlxApi } from '../olx/olxClient.js';
 import { INTENT_LABELS } from '../rules/classifier.js';
 import type { JsonFileStore } from '../rules/jsonFileStore.js';
-import type { templatesSchema } from '../rules/templates.js';
+import type { PhotoSet, templatesSchema } from '../rules/templates.js';
 import type { ThreadContextService } from '../services/context.js';
 import { statusLabel, type ReplyService } from '../services/replies.js';
 import type { OlxSender } from '../services/sender.js';
@@ -20,6 +20,7 @@ import { formatLocal } from '../time.js';
 import {
   actionableDraft,
   esc,
+  photoSetsKeyboard,
   quickTemplatesKeyboard,
   renderCard,
   threadKeyboard,
@@ -92,7 +93,7 @@ export class TelegramBridge implements Notifier {
     const data = await this.cardData(thread);
     const draft = actionableDraft(status);
     const text = renderCard(data, status);
-    const reply_markup = threadKeyboard(thread, draft);
+    const reply_markup = threadKeyboard(thread, draft, this.photoSetsFor(thread).length > 0);
     for (const chatId of this.allowed) {
       try {
         const msg = await this.d.bot.api.sendMessage(chatId, text, { ...HTML, reply_markup });
@@ -109,7 +110,7 @@ export class TelegramBridge implements Notifier {
     if (!thread) return;
     const data = await this.cardData(thread);
     const text = renderCard(data, status);
-    const reply_markup = threadKeyboard(thread, actionableDraft(status));
+    const reply_markup = threadKeyboard(thread, actionableDraft(status), this.photoSetsFor(thread).length > 0);
     for (const { chatId, messageId } of this.d.db.listTelegramLinksForDraft(draft.id)) {
       try {
         await this.d.bot.api.editMessageText(chatId, messageId, text, { ...HTML, reply_markup });
@@ -275,6 +276,7 @@ export class TelegramBridge implements Notifier {
     try {
       if (kind === 'd') return await this.onDraftAction(ctx, action ?? '', Number(idStr), thread);
       if (kind === 'q') return await this.onQuickTemplate(ctx, action ?? '', thread, link.draftId);
+      if (kind === 'p') return await this.onPhotoSet(ctx, action ?? '', thread, link.draftId);
       if (kind === 't') return await this.onThreadAction(ctx, action ?? '', thread, link.draftId);
       await ctx.answerCallbackQuery();
     } catch (err) {
@@ -319,7 +321,7 @@ export class TelegramBridge implements Notifier {
       }
       await ctx.answerCallbackQuery();
       const prompt = await ctx.reply(
-        `✏️ Надішліть новий текст <b>відповіддю на це повідомлення</b> — він одразу піде покупцю.\nПоточна чернетка (можна скопіювати):\n<code>${esc(draft.text)}</code>`,
+        `✏️ Надішліть новий текст <b>відповіддю на це повідомлення</b> — він одразу піде покупцю${draft.photos.length ? ` разом із ${draft.photos.length} фото` : ''}.\nПоточна чернетка (можна скопіювати):\n<code>${esc(draft.text)}</code>`,
         { ...HTML, reply_markup: { force_reply: true, input_field_placeholder: 'Новий текст відповіді' } },
       );
       this.d.db.linkTelegramMessage(prompt.chat.id, prompt.message_id, thread.uuid, draft.id);
@@ -362,6 +364,16 @@ export class TelegramBridge implements Notifier {
         }
         await ctx.answerCallbackQuery();
         await ctx.editMessageReplyMarkup({ reply_markup: quickTemplatesKeyboard(quick) });
+        return;
+      }
+      case 'ph': {
+        const sets = this.photoSetsFor(thread);
+        if (sets.length === 0) {
+          await ctx.answerCallbackQuery({ text: 'Для цього оголошення немає наборів фото в templates.json', show_alert: true });
+          return;
+        }
+        await ctx.answerCallbackQuery();
+        await ctx.editMessageReplyMarkup({ reply_markup: photoSetsKeyboard(sets) });
         return;
       }
       case 'back':
@@ -421,8 +433,8 @@ export class TelegramBridge implements Notifier {
   }
 
   /** Sends the owner's own text, closes pending drafts of the thread and marks it read. */
-  private async sendOwnerText(thread: ThreadRow, text: string): Promise<void> {
-    await this.d.sender.send(thread.uuid, text, 'owner');
+  private async sendOwnerText(thread: ThreadRow, text: string, photos: readonly string[] = []): Promise<void> {
+    await this.d.sender.send(thread.uuid, text, 'owner', photos);
     await this.closeOpenDrafts(thread.uuid, 'ви відповіли вручну');
     try {
       await this.d.olx.markAsRead(thread.uuid);
@@ -441,10 +453,30 @@ export class TelegramBridge implements Notifier {
     const draft = draftId ? this.d.db.getDraft(draftId) : null;
     const open = draft && (draft.status === 'pending' || draft.status === 'scheduled') ? draft : null;
     try {
-      await ctx.editMessageReplyMarkup({ reply_markup: threadKeyboard(thread, open) });
+      await ctx.editMessageReplyMarkup({ reply_markup: threadKeyboard(thread, open, this.photoSetsFor(thread).length > 0) });
     } catch (err) {
       if (!isNotModified(err)) throw err;
     }
+  }
+
+  /** Photo sets that fit the thread's advert (own ones and those for any advert). */
+  private photoSetsFor(thread: ThreadRow): PhotoSet[] {
+    return this.d.templates.get().photos.filter((p) => p.adverts.length === 0 || p.adverts.includes(thread.advertId));
+  }
+
+  private async onPhotoSet(ctx: Context, id: string, thread: ThreadRow, linkedDraftId: number | null): Promise<void> {
+    const set = this.photoSetsFor(thread).find((p) => p.id === id);
+    if (!set) {
+      await ctx.answerCallbackQuery({ text: 'Набір фото не знайдено (templates.json змінено?)', show_alert: true });
+      return;
+    }
+    await this.sendOwnerText(thread, set.text, set.urls);
+    await ctx.answerCallbackQuery({ text: `✅ Надіслано: ${set.label}` });
+    await this.restoreKeyboard(ctx, thread, linkedDraftId);
+    await ctx.reply(`✅ Надіслано в OLX (${set.urls.length} фото):\n<blockquote>${esc(set.text)}</blockquote>`, {
+      ...HTML,
+      reply_parameters: { message_id: ctx.callbackQuery!.message!.message_id },
+    });
   }
 }
 

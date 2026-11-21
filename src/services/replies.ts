@@ -58,7 +58,7 @@ export class ReplyService {
     // An approved template is still the bot's text; anything the owner typed counts as the owner's.
     const author = trigger === 'edit' || before.source === 'llm' ? 'owner' : 'bot';
     try {
-      await this.sender.send(before.threadUuid, text, author);
+      await this.sender.send(before.threadUuid, text, author, before.photos);
     } catch (err) {
       for (const i of recorded) this.db.deleteAutoReply(before.threadUuid, i);
       this.db.transitionDraft(draftId, ['sent'], 'pending');

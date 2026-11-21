@@ -114,6 +114,33 @@ describe('orders, delivery details and payments', () => {
   });
 });
 
+describe('photo requests', () => {
+  it.each(['Скиньте фото', 'Скиньте, будь ласка, фото комплекту', 'А фото є?', 'Можна фото?', 'Фото комплекту можна?', 'Покажіть фото'])(
+    'photo: %s',
+    (text) => {
+      const c = classify(text);
+      expect(c.blocked).toBeNull();
+      expect(c.intents).toContain('photo');
+      expect(c.intents).not.toContain('bargain');
+    },
+  );
+
+  it.each(['В комплекті все що на фото?', 'Скиньте 500 і беру'])('not a photo request: %s', (text) => {
+    expect(classify(text).intents).not.toContain('photo');
+  });
+
+  it('configured words of a photo set ask for photos without the word "фото"', () => {
+    const opts = { photoWords: ['великий\\s+(комплект|набір)'] };
+    expect(classify('А що входить у великий набір?').intents).not.toContain('photo');
+    expect(classify('А що входить у великий набір?', false, opts).intents).toContain('photo');
+  });
+
+  it('"скиньте карту / номер" is not bargaining', () => {
+    expect(classify('Скиньте карту, оплачу').intents).not.toContain('bargain');
+    expect(classify('Скиньте 500?').intents).toContain('bargain');
+  });
+});
+
 describe('seller-specific pickup words', () => {
   it('come from the config, not from the code', () => {
     expect(classify('Ви в центрі?').intents).not.toContain('pickup');

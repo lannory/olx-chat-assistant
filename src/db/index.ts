@@ -55,6 +55,8 @@ export interface DraftRow {
   tgChatId: number | null;
   tgMessageId: number | null;
   createdAt: number;
+  /** Public photo URLs posted together with the text (OLX message attachments). */
+  photos: string[];
 }
 
 export interface AdvertRow {
@@ -119,7 +121,18 @@ function toDraft(r: Row): DraftRow {
     tgChatId: num(r.tg_chat_id),
     tgMessageId: num(r.tg_message_id),
     createdAt: Number(r.created_at),
+    photos: parsePhotos(r.photos),
   };
+}
+
+function parsePhotos(v: unknown): string[] {
+  if (typeof v !== 'string' || !v) return [];
+  try {
+    const arr: unknown = JSON.parse(v);
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 function toAdvert(r: Row): AdvertRow {
@@ -390,14 +403,20 @@ export class Db {
     source: DraftSource;
     status: DraftStatus;
     scheduledFor?: number | null;
+    photos?: string[];
   }): DraftRow {
     const now = this.now();
     const res = this.db
       .prepare(
-        `INSERT INTO drafts (thread_uuid, message_uuid, intent, text, source, status, scheduled_for, created_at, updated_at)
-         VALUES (@threadUuid, @messageUuid, @intent, @text, @source, @status, @scheduledFor, @now, @now)`,
+        `INSERT INTO drafts (thread_uuid, message_uuid, intent, text, source, status, scheduled_for, photos, created_at, updated_at)
+         VALUES (@threadUuid, @messageUuid, @intent, @text, @source, @status, @scheduledFor, @photos, @now, @now)`,
       )
-      .run({ ...d, scheduledFor: d.scheduledFor ?? null, now });
+      .run({
+        ...d,
+        scheduledFor: d.scheduledFor ?? null,
+        photos: d.photos?.length ? JSON.stringify(d.photos) : null,
+        now,
+      });
     return this.getDraft(Number(res.lastInsertRowid))!;
   }
 

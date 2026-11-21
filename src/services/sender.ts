@@ -12,13 +12,14 @@ export class OlxSender {
     private readonly now: () => number = Date.now,
   ) {}
 
-  async send(threadUuid: string, text: string, author: 'bot' | 'owner'): Promise<void> {
+  /** `photos`: public image URLs posted as OLX message attachments. */
+  async send(threadUuid: string, text: string, author: 'bot' | 'owner', photos: readonly string[] = []): Promise<void> {
     const body = text.trim();
     if (!body) throw new Error('Empty message');
     // Record first: a concurrent poll may already see the message before send() resolves.
     const outgoingId = this.db.recordOutgoing(threadUuid, body, author);
     try {
-      await this.olx.sendMessage(threadUuid, body);
+      await this.olx.sendMessage(threadUuid, body, photos);
     } catch (err) {
       this.db.deleteOutgoing(outgoingId);
       throw err;

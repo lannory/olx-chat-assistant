@@ -71,7 +71,28 @@ export const templatesSchema = z.object({
       }),
     )
     .default([]),
+  /**
+   * Photo sets the bot can post to the buyer (OLX message attachments). The OLX API takes photos
+   * only as public URLs, so each set is a list of links.
+   */
+  photos: z
+    .array(
+      z.object({
+        id: z.string().regex(/^[a-z0-9_-]{1,20}$/i, 'id: латиниця/цифри, до 20 символів'),
+        /** Button text in Telegram. */
+        label: z.string().min(1).max(30),
+        /** Message text sent with the photos. */
+        text: z.string().min(1),
+        urls: z.array(z.url({ protocol: /^https?$/ })).min(1).max(10),
+        /** Advert IDs this set belongs to; empty = any advert. */
+        adverts: z.array(z.coerce.number().int()).default([]),
+        /** Regex: buyer words that ask for this set even without the word "фото" ("великий комплект"). */
+        match: z.string().optional(),
+      }),
+    )
+    .default([]),
 });
+export type PhotoSet = z.output<typeof templatesSchema>['photos'][number];
 export type Templates = z.output<typeof templatesSchema>;
 
 const noteSchema = z.object({
@@ -107,6 +128,23 @@ export interface ReplyContext {
   greet?: boolean;
   /** What the buyer's delivery question is about (OLX Delivery, cash on delivery, Ukrposhta). */
   deliveryTopics?: DeliveryTopic[];
+  /** The buyer's new messages, joined: picks the photo set by its `match` words. */
+  buyerText?: string;
+}
+
+/**
+ * The photo set for a photo request, chosen only when it is clear what the buyer wants:
+ * the one set whose `match` words the buyer used, or else the one set bound to this advert that has
+ * no `match`. "Фото серійника" must not get the accessories photos, so otherwise null (the owner
+ * picks with "📷 Фото").
+ */
+export function pickPhotoSet(t: Templates, advertId: number | null, buyerText: string): PhotoSet | null {
+  const fits = t.photos.filter((p) => p.adverts.length === 0 || (advertId !== null && p.adverts.includes(advertId)));
+  const named = fits.filter((p) => p.match && new RegExp(p.match, 'iu').test(buyerText));
+  if (named.length === 1) return named[0]!;
+  if (named.length > 1) return null;
+  const own = fits.filter((p) => !p.match && advertId !== null && p.adverts.includes(advertId));
+  return own.length === 1 ? own[0]! : null;
 }
 
 /** No-break spaces used by Intl as thousands separators (U+00A0, U+202F). */
@@ -181,6 +219,8 @@ export interface ComposedReply {
   intents: Intent[];
   /** Intents that could not be answered automatically and why. */
   skipped: { intent: Intent; reason: string }[];
+  /** Photo URLs to post with the text. */
+  photos: string[];
 }
 
 export function contextVars(ctx: ReplyContext, t: Templates): Record<string, string> {
@@ -206,10 +246,25 @@ export function composeReply(intents: Intent[], ctx: ReplyContext, t: Templates)
   const parts: string[] = [];
   const covered: Intent[] = [];
   const skipped: ComposedReply['skipped'] = [];
+  let photos: string[] = [];
 
   for (const intent of intents) {
     if (intent === 'condition' && !hasNotes(ctx.notes)) {
       skipped.push({ intent, reason: 'немає нотаток для цього оголошення в adverts.config.json' });
+      continue;
+    }
+    if (intent === 'photo') {
+      const set = pickPhotoSet(t, ctx.advert?.id ?? null, ctx.buyerText ?? '');
+      if (!set) {
+        skipped.push({
+          intent,
+          reason: t.photos.length ? 'незрозуміло, який набір фото надіслати (кнопка «📷 Фото»)' : 'немає наборів фото в templates.json',
+        });
+        continue;
+      }
+      parts.push(render(set.text, vars));
+      covered.push(intent);
+      photos = set.urls;
       continue;
     }
     let template = intent === 'bargain' && ctx.military ? t.intents.bargain_military : t.intents[intent];
@@ -238,9 +293,9 @@ export function composeReply(intents: Intent[], ctx: ReplyContext, t: Templates)
       covered.push(intent);
     }
   }
-  if (parts.length === 0) return { text: '', intents: [], skipped };
+  if (parts.length === 0) return { text: '', intents: [], skipped, photos: [] };
 
   const greeting = ctx.greet === false ? '' : render(t.greeting, vars);
   const text = [greeting, ...parts, render(t.signature, vars)].filter(Boolean).join('\n');
-  return { text, intents: covered, skipped };
+  return { text, intents: covered, skipped, photos };
 }
