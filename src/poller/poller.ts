@@ -207,10 +207,10 @@ export class Poller {
 
   /** Stores unknown messages; returns how many were new. */
   private storeMessages(threadUuid: string, messages: OlxMessage[], baseline: boolean): number {
-    const { db, timezone } = this.deps;
+    const { db } = this.deps;
     const now = this.now();
     const sorted = messages
-      .map((m, i) => ({ m, i, at: parseOlxDate(m.createdAt, timezone) ?? now }))
+      .map((m, i) => ({ m, i, at: parseOlxDate(m.createdAt) ?? now }))
       .sort((a, b) => a.at - b.at || a.i - b.i);
 
     let added = 0;

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AdvertRow } from '../db/index.js';
 import type { DeliveryTopic, Intent } from './classifier.js';
+import { wallTime } from '../time.js';
 import { detectItem, detectItemName, itemsSchema } from './itemName.js';
 
 const shippingSetSchema = z.object({
@@ -14,6 +15,12 @@ const shippingSetSchema = z.object({
 
 export const templatesSchema = z.object({
   greeting: z.string().default(''),
+  /** Used instead of `greeting` in the evening and at night (local time, TIMEZONE). Empty = always `greeting`. */
+  greeting_evening: z.string().default(''),
+  /** Evening/night window for `greeting_evening`: from `from`:00 until `to`:00 (wraps over midnight). */
+  evening_hours: z
+    .object({ from: z.number().int().min(0).max(23).default(18), to: z.number().int().min(0).max(23).default(6) })
+    .default({ from: 18, to: 6 }),
   signature: z.string().default(''),
   intents: z.object({
     availability: z.string().min(1),
@@ -130,6 +137,18 @@ export interface ReplyContext {
   deliveryTopics?: DeliveryTopic[];
   /** The buyer's new messages, joined: picks the photo set by its `match` words. */
   buyerText?: string;
+  /** When the reply is written, and the seller's timezone: "Добрий вечір" vs "Добрий день". */
+  now?: number;
+  timezone?: string;
+}
+
+/** `greeting_evening` from `evening_hours.from` until `evening_hours.to` local time, `greeting` otherwise. */
+export function greetingTemplate(t: Templates, now: number | undefined, timezone: string | undefined): string {
+  if (!t.greeting_evening.trim() || now === undefined || !timezone) return t.greeting;
+  const { hour } = wallTime(now, timezone);
+  const { from, to } = t.evening_hours;
+  const evening = from <= to ? hour >= from && hour < to : hour >= from || hour < to;
+  return evening ? t.greeting_evening : t.greeting;
 }
 
 /**
@@ -295,7 +314,7 @@ export function composeReply(intents: Intent[], ctx: ReplyContext, t: Templates)
   }
   if (parts.length === 0) return { text: '', intents: [], skipped, photos: [] };
 
-  const greeting = ctx.greet === false ? '' : render(t.greeting, vars);
+  const greeting = ctx.greet === false ? '' : render(greetingTemplate(t, ctx.now, ctx.timezone), vars);
   const text = [greeting, ...parts, render(t.signature, vars)].filter(Boolean).join('\n');
   return { text, intents: covered, skipped, photos };
 }

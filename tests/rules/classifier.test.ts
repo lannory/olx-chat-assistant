@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classify, deliveryTopics, extractOffers, isSmallTalk } from '../../src/rules/classifier.js';
+import { classify, deliveryTopics, extractOffers, isBareYes, isSmallTalk } from '../../src/rules/classifier.js';
 
 describe('price offers (from real buyer messages)', () => {
   it.each([
@@ -111,6 +111,20 @@ describe('orders, delivery details and payments', () => {
   });
   it('"я б оплатив доставку" is not a payment report', () => {
     expect(classify('Я би доставку наприклад оплатив').blocked).not.toBe('paid');
+  });
+});
+
+describe('short availability questions', () => {
+  it.each(['є?', 'Є?', 'чи є?', 'Добрий день, є?', 'а є?', 'Есть?', 'Є', 'чи є', 'Добрий вечір, є'])('%s → availability', (text) => {
+    expect(classify(text).intents).toEqual(['availability']);
+  });
+  it.each(['є торг?', 'Є кріплення на шолом?'])('not just availability: %s', (text) => {
+    expect(classify(text).intents).not.toEqual(['availability']);
+  });
+  it('isBareYes: "є" without "?" (may be an answer to the seller)', () => {
+    expect(isBareYes('Є')).toBe(true);
+    expect(isBareYes('Добрий день, є')).toBe(true);
+    expect(isBareYes('є?')).toBe(false);
   });
 });
 

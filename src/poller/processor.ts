@@ -17,13 +17,14 @@ import {
   NO_LLM_BLOCKS,
   classify,
   deliveryTopics,
+  isBareYes,
   isMilitary,
   isSmallTalk,
   type Intent,
 } from '../rules/classifier.js';
 import type { JsonFileStore } from '../rules/jsonFileStore.js';
 import { decideAutoReply } from '../rules/policy.js';
-import { composeReply, formatPrice, olxDeliveryPrice, type templatesSchema } from '../rules/templates.js';
+import { composeReply, formatPrice, greetingTemplate, olxDeliveryPrice, type templatesSchema } from '../rules/templates.js';
 import type { ThreadContextService } from '../services/context.js';
 import { draftIntents, type ReplyService } from '../services/replies.js';
 import type { RuntimeSettings } from '../settings.js';
@@ -107,13 +108,18 @@ export class Processor implements MessageProcessor {
       pickupWords: tpl.pickup_words,
       photoWords: tpl.photos.flatMap((p) => (p.match ? [p.match] : [])),
     };
+    const sellerWrote = this.d.db.sellerHasWritten(thread.uuid);
     for (const m of relevant) {
       const c = classify(m.text, m.hasAttachments, classifyOpts);
       if (c.blocked) return { kind: 'forward', reason: BLOCK_REASON_LABELS[c.blocked], llm: !NO_LLM_BLOCKS.has(c.blocked) };
+      // "Є" after the seller wrote answers the seller's question; it does not ask about availability.
+      if (sellerWrote && isBareYes(m.text)) continue;
       c.intents.forEach((i) => intents.add(i));
       offers.push(...c.offers);
       bargainExplicit ||= c.bargainExplicit;
     }
+
+    if (intents.size === 0) return { kind: 'forward', reason: 'відповідь покупця на ваше запитання', llm: false };
 
     // Ordering via OLX Delivery needs no shipping details from the buyer: the delivery answer covers it.
     const topics = [...new Set(relevant.flatMap((m) => deliveryTopics(m.text)))];
@@ -165,6 +171,8 @@ export class Processor implements MessageProcessor {
         greet: !this.d.db.sellerHasWritten(thread.uuid),
         deliveryTopics: topics,
         buyerText: relevant.map((m) => m.text).join('\n'),
+        now: this.replyTime(),
+        timezone: this.d.config.TIMEZONE,
       },
       tpl,
     );
@@ -187,6 +195,19 @@ export class Processor implements MessageProcessor {
         : undefined,
       photos: reply.photos,
     };
+  }
+
+  /**
+   * When the reply will reach the buyer: now, or the end of quiet hours when MODE=auto postpones it.
+   * Picks "Добрий вечір" / "Добрий день".
+   */
+  private replyTime(): number {
+    const now = this.now();
+    const { QUIET_HOURS, TIMEZONE } = this.d.config;
+    if (this.d.settings.mode === 'auto' && QUIET_HOURS && isQuietTime(now, QUIET_HOURS, TIMEZONE)) {
+      return quietEndAfter(now, QUIET_HOURS, TIMEZONE);
+    }
+    return now;
   }
 
   private async execute(thread: ThreadRow, messages: MessageRow[], plan: Plan): Promise<CardStatus> {
@@ -264,6 +285,7 @@ export class Processor implements MessageProcessor {
         history: this.d.db.lastMessages(thread.uuid, 12),
         buyerName,
         sellerHasWritten: this.d.db.sellerHasWritten(thread.uuid),
+        greeting: greetingTemplate(this.d.templates.get(), this.replyTime(), this.d.config.TIMEZONE),
         olxPrice:
           advert?.priceValue != null
             ? formatPrice(olxDeliveryPrice(advert.priceValue, this.d.templates.get().olx_fee), advert.priceCurrency)

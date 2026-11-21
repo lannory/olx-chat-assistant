@@ -58,18 +58,13 @@ export function zonedToUtc(w: WallTime, tz: string): number {
 }
 
 /**
- * Parses OLX timestamps. The API returns "YYYY-MM-DD HH:mm:ss" without a zone; we treat it as wall time
- * in `tz` (Europe/Kyiv for olx.ua). ISO strings with an explicit zone are parsed as-is.
- * Returns null if unparseable.
+ * Parses OLX timestamps. The API returns "YYYY-MM-DD HH:mm:ss" without a zone, and it is UTC: messages
+ * arrive within one poll interval, yet read as Kyiv wall time they looked 2 h (3 h in summer) older.
+ * ISO strings with an explicit zone are parsed as-is. Returns null if unparseable.
  */
-export function parseOlxDate(value: string, tz: string): number | null {
+export function parseOlxDate(value: string): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?$/.exec(value.trim());
-  if (m) {
-    return zonedToUtc(
-      { year: +m[1]!, month: +m[2]!, day: +m[3]!, hour: +m[4]!, minute: +m[5]!, second: +(m[6] ?? 0) },
-      tz,
-    );
-  }
+  if (m) return Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +(m[6] ?? 0));
   const t = Date.parse(value);
   return Number.isNaN(t) ? null : t;
 }

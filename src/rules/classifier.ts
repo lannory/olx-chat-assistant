@@ -101,6 +101,9 @@ const PATTERNS: Record<Intent, RegExp[]> = {
     re(`${W}(не|вже|уже)\\s+продал`),
     re(`${W}продан[оаи]?\\s*\\?`),
     re(`${W}(є|есть)\\s+ще`),
+    // The whole message is "є?" / "чи є" / "добрий день, є". A bare "є" without "?" may also be an answer
+    // to the seller: the processor drops it once the seller has written (see isBareYes).
+    re(`^(${GREETING}[\\s,!.]*)?(а\\s+|і\\s+|и\\s+)?(чи\\s+)?(є|есть)[\\s?!.)]*$`),
   ],
   delivery: [
     re('доставк'),
@@ -243,6 +246,13 @@ const BLOCKERS: { reason: 'exchange' | 'price'; patterns: RegExp[] }[] = [
 
 function normalize(text: string): string {
   return text.toLowerCase().replace(/ё/g, 'е').replace(/[’'`ʼ]/g, '’').replace(/\s+/g, ' ').trim();
+}
+
+const BARE_YES = new RegExp(`^(${GREETING}[\\s,!.]*)?(а\\s+|і\\s+|и\\s+)?(чи\\s+)?(є|есть)[\\s!.)]*$`, 'iu');
+
+/** "Є" / "есть" without a question mark: as the buyer's first words it asks about availability, after the seller wrote it is an answer. */
+export function isBareYes(text: string): boolean {
+  return BARE_YES.test(normalize(text));
 }
 
 export function isMilitary(text: string): boolean {

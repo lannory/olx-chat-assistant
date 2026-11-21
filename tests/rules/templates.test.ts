@@ -10,6 +10,7 @@ import {
   advertsConfigSchema,
   composeReply,
   formatPrice,
+  greetingTemplate,
   olxDeliveryPrice,
   render,
   templatesSchema,
@@ -78,6 +79,24 @@ describe('composeReply', () => {
     const custom = composeReply(['availability'], ctx({ notes: { item: 'набір кріплень' } }), templates);
     expect(custom.text).toContain('Так, набір кріплень в наявності.');
     expect(custom.text).not.toContain('ThinkPad');
+  });
+
+  it('greets "Добрий вечір!" from 18:00 until 06:00 Kyiv time, "Добрий день!" otherwise', () => {
+    const at = (h: number, m = 0) => Date.UTC(2026, 10, 19, h - 2, m); // November: Kyiv = UTC+2
+    const greet = (ts: number) => greetingTemplate(templates, ts, 'Europe/Kyiv');
+    expect(greet(at(9))).toBe('Добрий день!');
+    expect(greet(at(17, 59))).toBe('Добрий день!');
+    expect(greet(at(18))).toBe('Добрий вечір!');
+    expect(greet(at(23, 30))).toBe('Добрий вечір!');
+    expect(greet(at(26))).toBe('Добрий вечір!'); // 02:00 next day
+    expect(greet(at(30))).toBe('Добрий день!'); // 06:00 next day
+    const r = composeReply(['availability'], ctx({ now: at(21), timezone: 'Europe/Kyiv' }), templates);
+    expect(r.text).toBe('Добрий вечір!\nТак, ноутбук в наявності.');
+  });
+
+  it('without greeting_evening always uses greeting', () => {
+    const t = templatesSchema.parse({ ...templates, greeting_evening: '' });
+    expect(greetingTemplate(t, Date.UTC(2026, 10, 19, 20), 'Europe/Kyiv')).toBe('Добрий день!');
   });
 
   it('omits the greeting in follow-up replies', () => {

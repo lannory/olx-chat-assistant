@@ -9,14 +9,14 @@ describe('time helpers', () => {
     expect(tzOffsetMs(Date.UTC(2026, 6, 15, 12), TZ)).toBe(3 * 3600_000);
   });
 
-  it('parses OLX "YYYY-MM-DD HH:mm:ss" as Kyiv wall time', () => {
-    expect(parseOlxDate('2026-11-19 10:00:00', TZ)).toBe(Date.UTC(2026, 10, 19, 8, 0, 0));
-    expect(parseOlxDate('2026-07-01 10:00:00', TZ)).toBe(Date.UTC(2026, 6, 1, 7, 0, 0));
+  it('parses OLX "YYYY-MM-DD HH:mm:ss" as UTC (what the API actually returns)', () => {
+    expect(parseOlxDate('2026-11-19 10:00:00')).toBe(Date.UTC(2026, 10, 19, 10, 0, 0));
+    expect(parseOlxDate('2026-07-01 10:00:00')).toBe(Date.UTC(2026, 6, 1, 10, 0, 0));
   });
 
   it('parses ISO with zone as-is and rejects garbage', () => {
-    expect(parseOlxDate('2026-11-19T10:00:00+00:00', TZ)).toBe(Date.UTC(2026, 10, 19, 10));
-    expect(parseOlxDate('yesterday', TZ)).toBeNull();
+    expect(parseOlxDate('2026-11-19T10:00:00+02:00')).toBe(Date.UTC(2026, 10, 19, 8));
+    expect(parseOlxDate('yesterday')).toBeNull();
   });
 
   it('detects quiet hours across midnight', () => {

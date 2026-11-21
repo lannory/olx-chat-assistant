@@ -1,5 +1,7 @@
 {
   "greeting": "Добрий день!",
+  "greeting_evening": "Добрий вечір!",
+  "evening_hours": { "from": 18, "to": 6 },
   "signature": "",
   "intents": {
     "availability": "Так, {item} в наявності.",

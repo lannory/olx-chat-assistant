@@ -94,11 +94,11 @@ describe('Poller', () => {
     await poller.pollOnce();
 
     db.recordOutgoing('t1', 'Так, актуально', 'bot');
-    olx.addMessage('t1', 'sent', 'Так, актуально', '2026-11-19 13:00:00');
+    olx.addMessage('t1', 'sent', 'Так, актуально', '2026-11-19 11:00:00');
     await poller.pollOnce();
     expect(db.getThread('t1')!.lastOwnerMsgAt).toBeNull();
 
-    olx.addMessage('t1', 'sent', 'Набери мене', '2026-11-19 13:30:00');
+    olx.addMessage('t1', 'sent', 'Набери мене', '2026-11-19 11:30:00');
     await poller.pollOnce();
     expect(db.getThread('t1')!.lastOwnerMsgAt).toBe(Date.UTC(2026, 10, 19, 11, 30));
   });

@@ -177,7 +177,7 @@ export function createHarness(opts: HarnessOptions = {}) {
       apiCalls.length = 0;
     },
     async buyerSays(text: string, threadKey = 't1', extra = {}) {
-      olx.addMessage(threadKey, 'received', text, kyivNow(clock.now), extra);
+      olx.addMessage(threadKey, 'received', text, olxTime(clock.now), extra);
       await poller.tick();
     },
     sent(method = 'sendMessage') {
@@ -230,7 +230,7 @@ export function createHarness(opts: HarnessOptions = {}) {
 }
 
 /** Formats a timestamp as OLX does (Kyiv wall time, no zone). */
-export function kyivNow(ts: number): string {
-  const d = new Date(ts + 2 * 3600_000); // November: UTC+2
-  return d.toISOString().replace('T', ' ').slice(0, 19);
+/** A timestamp as the OLX API writes it: "YYYY-MM-DD HH:mm:ss" in UTC. */
+export function olxTime(ts: number): string {
+  return new Date(ts).toISOString().replace('T', ' ').slice(0, 19);
 }

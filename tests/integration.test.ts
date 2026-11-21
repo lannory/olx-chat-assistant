@@ -218,6 +218,21 @@ describe('draft mode (default)', () => {
     });
   });
 
+  it('"є" as the first message asks about availability; after the seller wrote it is an answer', async () => {
+    const drafter = { draft: vi.fn().mockResolvedValue('LLM') };
+    const h = createHarness({ drafter });
+    await h.init();
+    await h.buyerSays('є');
+    expect(h.db.getDraft(1)!.text).toBe('Добрий день!\nТак, ноутбук в наявності.');
+    await h.press(h.buttons(h.lastCard()!)[0]!.callback_data, h.messageIdOf(h.lastCard()!));
+    await h.poller.tick();
+
+    await h.buyerSays('Є');
+    expect(h.db.getDraft(2)).toBeNull();
+    expect(h.lastCard()!.payload.text).toContain('відповідь покупця на ваше запитання');
+    expect(drafter.draft).not.toHaveBeenCalled();
+  });
+
   it('skip closes the draft', async () => {
     const h = createHarness();
     await h.init();
@@ -420,7 +435,7 @@ describe('auto mode', () => {
   it('does not answer when the owner wrote in the thread within the cooldown', async () => {
     const h = createHarness({ mode: 'auto' });
     await h.init();
-    h.olx.addMessage('t1', 'sent', 'Привіт, так, продаю', '2026-11-19 11:50:00'); // owner, 10 min ago
+    h.olx.addMessage('t1', 'sent', 'Привіт, так, продаю', '2026-11-19 09:50:00'); // owner, 10 min ago (UTC)
     await h.buyerSays('Де можна забрати?');
     expect(h.olx.sent).toHaveLength(0);
     expect(h.lastCard()!.payload.text).toContain('ви писали в цьому треді 10 хв тому');
@@ -445,12 +460,26 @@ describe('auto mode', () => {
     expect(h.sent('editMessageText').at(-1)!.payload.text).toContain('після тихих годин');
   });
 
+  it('evening message → "Добрий вечір!"; a reply postponed to the morning → "Добрий день!"', async () => {
+    const evening = createHarness({ startHourKyiv: 20 });
+    await evening.init();
+    await evening.buyerSays('Актуально?');
+    expect(evening.db.getDraft(1)!.text).toBe('Добрий вечір!\nТак, ноутбук в наявності.');
+
+    const night = createHarness({ mode: 'auto', quietHours: { start: 23, end: 8 }, startHourKyiv: 23 });
+    await night.init();
+    await night.buyerSays('Актуально?');
+    night.clock.now += 9 * 3600_000 + 60_000; // 08:01
+    await night.poller.tick();
+    expect(night.olx.sent[0]!.text).toBe('Добрий день!\nТак, ноутбук в наявності.');
+  });
+
   it('quiet hours: a scheduled reply is dropped if the owner answered in the meantime', async () => {
     const h = createHarness({ mode: 'auto', quietHours: { start: 23, end: 8 }, startHourKyiv: 23 });
     await h.init();
     await h.buyerSays('Актуально?');
     h.clock.now += 60_000;
-    h.olx.addMessage('t1', 'sent', 'Так!', '2026-11-19 23:01:00');
+    h.olx.addMessage('t1', 'sent', 'Так!', '2026-11-19 21:01:00');
     h.clock.now += 9 * 3600_000;
     await h.poller.tick();
     expect(h.olx.sent).toHaveLength(0);
