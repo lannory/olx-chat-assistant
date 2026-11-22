@@ -94,6 +94,13 @@ describe('composeReply', () => {
     expect(r.text).toBe('Добрий вечір!\nТак, ноутбук в наявності.');
   });
 
+  it('hello: greets back, plus intents.hello when set, also later in the thread', () => {
+    expect(composeReply(['hello'], ctx(), templates).text).toBe('Добрий день!');
+    expect(composeReply(['hello'], ctx({ greet: false }), templates).text).toBe('Добрий день!');
+    const withText = templatesSchema.parse({ ...templates, intents: { ...templates.intents, hello: 'Слухаю вас.' } });
+    expect(composeReply(['hello'], ctx(), withText).text).toBe('Добрий день!\nСлухаю вас.');
+  });
+
   it('without greeting_evening always uses greeting', () => {
     const t = templatesSchema.parse({ ...templates, greeting_evening: '' });
     expect(greetingTemplate(t, Date.UTC(2026, 10, 19, 20), 'Europe/Kyiv')).toBe('Добрий день!');

@@ -7,7 +7,7 @@
  */
 
 /** Canonical order = order of paragraphs in a combined reply. */
-export const AUTO_INTENTS = ['availability', 'delivery', 'pickup', 'condition', 'photo', 'bargain', 'order', 'order_details'] as const;
+export const AUTO_INTENTS = ['hello', 'availability', 'delivery', 'pickup', 'condition', 'photo', 'bargain', 'order', 'order_details'] as const;
 export type Intent = (typeof AUTO_INTENTS)[number];
 
 export type BlockReason = 'price' | 'exchange' | 'attachment' | 'empty' | 'paid' | 'unknown';
@@ -171,6 +171,8 @@ const PATTERNS: Record<Intent, RegExp[]> = {
   ],
   order: [
     re(`${W}хочу\\s+(за)?(мовит|купит|придбат|взят|заказат|приобрест)`),
+    // "Хотів би купити ноутбук", "хотела бы заказать".
+    re(`${W}(хот[іие]в|хот[іие]ла|хот[іие]ли|хот[іие]лось|хотел|хотела|хотели|хотелось)\\s+((б|би|бы)\\s+)?(за)?(мовит|купит|придбат|взят|заказат|приобрест)`),
     // "можна замовити?" but not "чому я не можу замовити?"
     re(`(?<!не\\s)${W}(можна|можно|можу)\\s+(за)?(мовит|заказат)`),
     re(`${W}(замовляю|заказываю)(?!\\p{L})`),
@@ -178,6 +180,8 @@ const PATTERNS: Record<Intent, RegExp[]> = {
   ],
   // Detected separately (isOrderDetails): the whole message is the buyer's delivery details.
   order_details: [],
+  // Detected separately (isGreetingOnly): the message is only "Добрий день" — answered with a greeting.
+  hello: [],
   // "Скиньте фото", "а фото є?", "можна фото комплекту" (not "все що на фото входить?").
   photo: [
     re(`${W}(скин|скід|надіш|надсил|кин|пришл|прешл|присл|покаж|показ|дайт|скинь)\\p{L}*[\\s,]+(\\p{L}+[\\s,]+){0,3}(фот|photo)`),
@@ -288,6 +292,8 @@ export function classify(text: string, hasAttachments = false, opts: ClassifyOpt
   });
   // "8500 беру" is a counter-offer, not an order at the advert price.
   if (intents.includes('bargain')) intents = intents.filter((i) => i !== 'order');
+  // "Хочу купити" also asks whether the item is still there: confirm it before asking for the details.
+  if (intents.includes('order')) intents = AUTO_INTENTS.filter((i) => i === 'availability' || intents.includes(i));
   // "скиньте фото комплекту" asks for photos; "комплект" alone does not make it a condition question.
   if (intents.includes('photo') && intents.includes('condition')) {
     const otherCondition = PATTERNS.condition.some((p) => p !== KIT && p.test(t));
@@ -340,6 +346,23 @@ const ACK_WORDS = new Set([
   '🤝', '👍', '👌', '🙏', '🙂', '😊', '❤️', '💪',
 ]);
 
+const GREETING_ONE = new RegExp(GREETING, 'iu');
+
+/** Only a greeting ("Добрий день!", "Вітаю 🙂", "Доброго"): the owner usually greets back. Thanks/"добре" are not. */
+export function isGreetingOnly(text: string): boolean {
+  const t = normalize(text);
+  if (t === '' || t.includes('?')) return false;
+  const greeted = GREETING_ONE.test(t) || /^(добрий|доброго|добрый|доброе)[\s!.,)]*$/iu.test(t);
+  if (!greeted) return false;
+  const rest = t
+    .replace(GREETING_RE, ' ')
+    .replace(/^(добрий|доброго|добрый|доброе)/iu, ' ')
+    .replace(/[\s,.!)(:;-]+/gu, ' ')
+    .replace(/️/g, '')
+    .trim();
+  return rest.split(' ').filter(Boolean).every((w) => /^\p{Extended_Pictographic}+$/u.test(w));
+}
+
 /** Greetings, thanks and acknowledgements with no question: nothing to answer, no auto reply, no LLM draft. */
 export function isSmallTalk(text: string): boolean {
   const t = normalize(text);
@@ -372,4 +395,5 @@ export const INTENT_LABELS: Record<Intent, string> = {
   order: 'замовлення',
   order_details: 'дані для відправки',
   photo: 'фото',
+  hello: 'привітання',
 };

@@ -105,13 +105,13 @@ describe('draft mode (default)', () => {
     await h.init();
     await h.buyerSays('Доброго дня, хочу замовити');
     expect(h.db.getDraft(1)!.text).toBe(
-      'Добрий день!\nДобре, напишіть, будь ласка, дані для відправки: ПІБ, номер телефону, місто та номер відділення Нової Пошти.',
+      'Добрий день!\nТак, ноутбук в наявності.\nНапишіть, будь ласка, дані для відправки: ПІБ, номер телефону, місто та номер відділення Нової Пошти.',
     );
 
     const h2 = createHarness();
     await h2.init();
     await h2.buyerSays('Вітаю! Можна замовити олх доставкою?');
-    expect(h2.db.getDraft(1)!.intent).toBe('delivery');
+    expect(h2.db.getDraft(1)!.intent).toBe('availability,delivery');
     expect(h2.db.getDraft(1)!.text).not.toContain('дані для відправки');
   });
 
@@ -233,6 +233,27 @@ describe('draft mode (default)', () => {
     expect(drafter.draft).not.toHaveBeenCalled();
   });
 
+  it('a greeting alone is greeted back by the time of day; thanks are not answered', async () => {
+    const h = createHarness();
+    await h.init();
+    await h.buyerSays('Добрий день');
+    expect(h.db.getDraft(1)!.text).toBe('Добрий день!');
+    expect(h.db.getDraft(1)!.intent).toBe('hello');
+    // The question that follows is answered without a second greeting.
+    await h.buyerSays('Ще є?');
+    expect(h.db.getDraft(2)!.text).toBe('Так, ноутбук в наявності.');
+
+    const evening = createHarness({ startHourKyiv: 21 });
+    await evening.init();
+    await evening.buyerSays('Вітаю 🙂');
+    expect(evening.db.getDraft(1)!.text).toBe('Добрий вечір!');
+
+    const thanks = createHarness();
+    await thanks.init();
+    await thanks.buyerSays('Дякую');
+    expect(thanks.db.getDraft(1)).toBeNull();
+  });
+
   it('skip closes the draft', async () => {
     const h = createHarness();
     await h.init();
@@ -345,7 +366,7 @@ describe('draft mode (default)', () => {
   });
 
   it('LLM drafts appear only in draft mode, for messages without a template', async () => {
-    const drafter = { draft: vi.fn().mockResolvedValue('Добрий день! Продавець відповість щодо ціни особисто.') };
+    const drafter = { draft: vi.fn().mockResolvedValue('Добрий день! Ціну уточню й відпишу.') };
     const h = createHarness({ drafter });
     await h.init();
     await h.buyerSays('Можна номер телефону?');
@@ -377,7 +398,7 @@ describe('draft mode (default)', () => {
   });
 
   it('delivery question when the item category is unclear: LLM draft instead of guessing the terms', async () => {
-    const drafter = { draft: vi.fn().mockResolvedValue('Добрий день! Так, в наявності. Умови доставки продавець уточнить.') };
+    const drafter = { draft: vi.fn().mockResolvedValue('Добрий день! Так, в наявності. Умови доставки уточню.') };
     const h = createHarness({ drafter });
     h.olx.adverts.get(ADVERT_ID)!.title = 'Велосипед дитячий';
     await h.init();

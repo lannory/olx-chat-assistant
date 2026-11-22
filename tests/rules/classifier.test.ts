@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classify, deliveryTopics, extractOffers, isBareYes, isSmallTalk } from '../../src/rules/classifier.js';
+import { classify, deliveryTopics, extractOffers, isBareYes, isGreetingOnly, isSmallTalk } from '../../src/rules/classifier.js';
 
 describe('price offers (from real buyer messages)', () => {
   it.each([
@@ -66,11 +66,14 @@ describe('acknowledgements are small talk', () => {
 
 describe('orders, delivery details and payments', () => {
   it.each([
-    ['Доброго дня, хочу замовити', ['order']],
-    ['Беру', ['order']],
-    ['Можна замовити?', ['order']],
-    ['Беру / Відправляєте НП післяплатою?', ['delivery', 'order']],
-    ['Вітаю! Можна замовити олх доставкою?', ['delivery', 'order']],
+    ['Доброго дня, хочу замовити', ['availability', 'order']],
+    ['Беру', ['availability', 'order']],
+    ['Можна замовити?', ['availability', 'order']],
+    ['Доброго дня. Хотів би купити ноутбук', ['availability', 'order']],
+    ['Хотіла б замовити', ['availability', 'order']],
+    ['Хотел бы купить', ['availability', 'order']],
+    ['Беру / Відправляєте НП післяплатою?', ['availability', 'delivery', 'order']],
+    ['Вітаю! Можна замовити олх доставкою?', ['availability', 'delivery', 'order']],
   ] as const)('%s → %j', (text, intents) => {
     const c = classify(text);
     expect(c.blocked).toBeNull();
@@ -79,6 +82,10 @@ describe('orders, delivery details and payments', () => {
 
   it('a counter-offer is bargaining, not an order', () => {
     expect(classify('За 6500 беру').intents).toEqual(['bargain']);
+  });
+
+  it('"хотів би запитати" is not an order', () => {
+    expect(classify('Хотів би запитати про стан').intents).not.toContain('order');
   });
 
   it('"чому я не можу замовити?" is not an order', () => {
@@ -111,6 +118,15 @@ describe('orders, delivery details and payments', () => {
   });
   it('"я б оплатив доставку" is not a payment report', () => {
     expect(classify('Я би доставку наприклад оплатив').blocked).not.toBe('paid');
+  });
+});
+
+describe('greeting-only messages', () => {
+  it.each(['Добрий день', 'Доброго дня!', 'Вітаю 🙂', 'Доброго', 'Здравствуйте', 'Добрий вечір!!', 'привіт'])('greeting only: %s', (text) => {
+    expect(isGreetingOnly(text)).toBe(true);
+  });
+  it.each(['Дякую', 'Добре', '🤝', 'Добрий день, є?', 'Добрий день, хочу замовити', 'Добрий день, дякую'])('not only a greeting: %s', (text) => {
+    expect(isGreetingOnly(text)).toBe(false);
   });
 });
 

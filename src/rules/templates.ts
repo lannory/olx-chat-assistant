@@ -35,9 +35,11 @@ export const templatesSchema = z.object({
     order: z
       .string()
       .min(1)
-      .default('Добре, напишіть, будь ласка, дані для відправки: ПІБ, номер телефону, місто та номер відділення Нової Пошти.'),
+      .default('Напишіть, будь ласка, дані для відправки: ПІБ, номер телефону, місто та номер відділення Нової Пошти.'),
     /** The buyer sent delivery details (name, phone, branch). */
     order_details: z.string().min(1).default('Дякую за замовлення!'),
+    /** Added after the greeting when the buyer only greeted ("Добрий день"). Empty = just greet back. */
+    hello: z.string().default(''),
   }),
   /**
    * Generic `{payment}` variants for `intents.delivery`, chosen by SHIPPING_COD / SHIPPING_PREPAY.
@@ -272,6 +274,13 @@ export function composeReply(intents: Intent[], ctx: ReplyContext, t: Templates)
       skipped.push({ intent, reason: 'немає нотаток для цього оголошення в adverts.config.json' });
       continue;
     }
+    if (intent === 'hello') {
+      // The greeting itself is the answer (added below); `intents.hello` may add a line after it.
+      const p = render(t.intents.hello, vars);
+      if (p) parts.push(p);
+      covered.push(intent);
+      continue;
+    }
     if (intent === 'photo') {
       const set = pickPhotoSet(t, ctx.advert?.id ?? null, ctx.buyerText ?? '');
       if (!set) {
@@ -312,9 +321,12 @@ export function composeReply(intents: Intent[], ctx: ReplyContext, t: Templates)
       covered.push(intent);
     }
   }
-  if (parts.length === 0) return { text: '', intents: [], skipped, photos: [] };
+  const hello = covered.includes('hello');
+  if (parts.length === 0 && !hello) return { text: '', intents: [], skipped, photos: [] };
 
-  const greeting = ctx.greet === false ? '' : render(greetingTemplate(t, ctx.now, ctx.timezone), vars);
+  // A buyer who greets gets greeted back, even later in the thread.
+  const greeting = ctx.greet === false && !hello ? '' : render(greetingTemplate(t, ctx.now, ctx.timezone), vars);
+  if (parts.length === 0 && !greeting) return { text: '', intents: [], skipped, photos: [] };
   const text = [greeting, ...parts, render(t.signature, vars)].filter(Boolean).join('\n');
   return { text, intents: covered, skipped, photos };
 }

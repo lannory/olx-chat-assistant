@@ -18,6 +18,7 @@ import {
   classify,
   deliveryTopics,
   isBareYes,
+  isGreetingOnly,
   isMilitary,
   isSmallTalk,
   type Intent,
@@ -98,9 +99,12 @@ export class Processor implements MessageProcessor {
 
   private async plan(thread: ThreadRow, messages: MessageRow[]): Promise<Plan> {
     const relevant = messages.filter((m) => m.hasAttachments || !isSmallTalk(m.text));
-    if (relevant.length === 0) return { kind: 'forward', reason: 'привітання / подяка без питання', llm: false };
+    const onlyGreeted = relevant.length === 0 && messages.some((m) => isGreetingOnly(m.text));
+    if (relevant.length === 0 && !onlyGreeted) return { kind: 'forward', reason: 'подяка / підтвердження без питання', llm: false };
 
     const intents = new Set<Intent>();
+    // "Добрий день" alone: greet back (the question usually follows in the next message).
+    if (onlyGreeted) intents.add('hello');
     const offers: number[] = [];
     let bargainExplicit = false;
     const tpl = this.d.templates.get();

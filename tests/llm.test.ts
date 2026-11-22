@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import type { MessageRow } from '../src/db/index.js';
-import { buildUserPrompt, GeminiDrafter, markNonOriginalVariants, redactPersonalData, SYSTEM_PROMPT, systemPrompt } from '../src/llm/draft.js';
+import {
+  buildUserPrompt,
+  GeminiDrafter,
+  markNonOriginalVariants,
+  redactPersonalData,
+  revealsAssistant,
+  SYSTEM_PROMPT,
+  systemPrompt,
+} from '../src/llm/draft.js';
 import { nullLogger } from '../src/logger.js';
 
 interface Captured {
@@ -63,10 +71,10 @@ describe('Gemini drafter', () => {
   });
 
   it('calls generateContent with system instruction, minimal thinking and the key in a header', async () => {
-    const { fetchFn, requests } = mockGemini(200, ok('Добрий день! Чохла в комплекті немає, продавець уточнить.'));
+    const { fetchFn, requests } = mockGemini(200, ok('Добрий день! Чохла в комплекті немає, уточню й відпишу.'));
     const text = await drafter(fetchFn).draft(input);
 
-    expect(text).toBe('Добрий день! Чохла в комплекті немає, продавець уточнить.');
+    expect(text).toBe('Добрий день! Чохла в комплекті немає, уточню й відпишу.');
     const req = requests[0]!;
     expect(req.url).toContain('generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');
     expect(req.url).not.toContain('test-key');
@@ -100,6 +108,33 @@ describe('Gemini drafter', () => {
   it('returns null (no throw) when the free tier quota is exhausted', async () => {
     const { fetchFn } = mockGemini(429, { error: { code: 429, message: 'Resource exhausted', status: 'RESOURCE_EXHAUSTED' } });
     expect(await drafter(fetchFn).draft(input)).toBeNull();
+  });
+});
+
+describe('replies read as the seller himself', () => {
+  it.each([
+    'Ціна остаточна, продавець відповість на ваше повідомлення особисто.',
+    'Продавець уточнить і відпише.',
+    'Я бот, продавець скоро відповість.',
+    'Це автоматична відповідь.',
+  ])('flags: %s', (text) => {
+    expect(revealsAssistant(text)).toBe(true);
+  });
+
+  it.each(['На жаль, торг відсутній.', 'Уточню й відпишу.', 'Так, ботинки не входять у комплект.', 'Робота ноутбука без нюансів.'])('ok: %s', (text) => {
+    expect(revealsAssistant(text)).toBe(false);
+  });
+
+  it('a Gemini draft that speaks about the seller is dropped', async () => {
+    const { fetchFn } = mockGemini(200, ok('Ціна остаточна, продавець відповість на ваше повідомлення особисто.'));
+    expect(await drafter(fetchFn).draft(input)).toBeNull();
+  });
+
+  it('the rules ask for first person and a plain "торг відсутній" on bargaining', () => {
+    expect(SYSTEM_PROMPT).toContain('від першої особи');
+    expect(SYSTEM_PROMPT).toContain('«На жаль, торг відсутній.»');
+    expect(SYSTEM_PROMPT).not.toContain('продавець відповість особисто');
+    expect(SYSTEM_PROMPT).not.toContain('продавець уточнить');
   });
 });
 
